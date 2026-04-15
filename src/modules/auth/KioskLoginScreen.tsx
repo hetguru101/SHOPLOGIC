@@ -1,204 +1,207 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/core/hooks/useAuth';
 import { supabase } from '@/core/supabase/client';
-import { User } from '@/core/types/models';
+import type { User } from '@/core/types/models';
 
+/**
+ * Shop floor terminal: signed-in `kiosk` user picks a technician, optional PIN is verified server-side,
+ * then `enterFloorSession` opens the work-order view without per-tech Supabase Auth.
+ */
 export default function KioskLoginScreen() {
-  const { loginWithTechId, loading: authLoading } = useAuth();
+  const { user, enterFloorSession, logout } = useAuth();
   const [techs, setTechs] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTech, setSelectedTech] = useState<User | null>(null);
   const [pin, setPin] = useState('');
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  // Fetch active techs
+  const loadTechs = useCallback(async () => {
+    if (!user?.shop_id) return;
+    const { data, error: qErr } = await supabase
+      .from('users')
+      .select('*')
+      .eq('shop_id', user.shop_id)
+      .eq('role', 'tech')
+      .eq('active', true)
+      .order('name');
+
+    if (qErr) throw qErr;
+    setTechs((data as User[]) ?? []);
+  }, [user?.shop_id]);
+
   useEffect(() => {
-    const fetchTechs = async () => {
+    let cancelled = false;
+    (async () => {
       try {
-        const { data, error } = await supabase
-          .from('users')
-          .select('*')
-          .eq('active', true)
-          .in('role', ['tech', 'manager', 'admin']);
-
-        if (error) throw error;
-        setTechs((data as User[]) || []);
+        await loadTechs();
       } catch (err) {
-        console.error('Error fetching techs:', err);
-        setError('Failed to load technicians');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchTechs();
-
-    // Subscribe to realtime updates
-    const channel = supabase
-      .channel('users-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'users' },
-        () => {
-          fetchTechs();
+        if (!cancelled) {
+          console.error(err);
+          setError('Failed to load technicians');
         }
-      )
-      .subscribe();
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadTechs]);
 
+  useEffect(() => {
+    const channel = supabase
+      .channel('kiosk-users')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => {
+        void loadTechs();
+      })
+      .subscribe();
     return () => {
       channel.unsubscribe();
     };
-  }, []);
+  }, [loadTechs]);
 
-  const handleTechSelect = (tech: User) => {
-    setSelectedTech(tech);
-    setPin('');
-    setError('');
-  };
-
-  const handlePINEntry = (digit: string) => {
-    if (pin.length < 6) {
-      setPin(pin + digit);
-    }
-  };
-
-  const handlePinClear = () => {
-    setPin(pin.slice(0, -1));
-  };
-
-  const handleLogin = async () => {
+  const confirmTech = async () => {
     if (!selectedTech) {
-      setError('Please select a technician');
+      setError('Select a technician');
       return;
     }
-
-    // Validate PIN if required
-    if (selectedTech.pin && pin !== selectedTech.pin) {
-      setError('Invalid PIN');
-      setPin('');
-      return;
-    }
-
+    setBusy(true);
+    setError('');
     try {
-      await loginWithTechId(selectedTech.user_id);
+      const { data, error: rpcErr } = await supabase.rpc('kiosk_verify_tech', {
+        p_tech_id: selectedTech.user_id,
+        p_pin: pin,
+      });
+
+      if (rpcErr) throw rpcErr;
+
+      const result = data as { ok?: boolean; error?: string } | null;
+      if (!result?.ok) {
+        setError(result?.error === 'bad_pin' ? 'Invalid PIN' : result?.error || 'Verification failed');
+        setPin('');
+        return;
+      }
+
+      enterFloorSession(selectedTech);
     } catch (err) {
-      setError((err as Error).message || 'Login failed');
+      setError(err instanceof Error ? err.message : 'Verification failed');
+    } finally {
+      setBusy(false);
     }
   };
 
   if (loading) {
     return (
-      <div className="flex-center min-h-screen bg-gradient-to-br from-blue-600 to-blue-800">
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-800 to-slate-950">
         <div className="text-white text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-4 border-white border-t-transparent mx-auto mb-4"></div>
-          <p className="text-lg">Loading ShopLogic...</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-white border-t-transparent mx-auto mb-4" />
+          <p className="text-lg">Loading kiosk…</p>
         </div>
       </div>
     );
   }
 
-  // PIN entry screen
   if (selectedTech) {
+    const needsPin = !!(selectedTech.pin && selectedTech.pin.trim());
+
     return (
-      <div className="flex-center min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 p-4">
-        <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-md">
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-800 to-slate-950 p-4">
+        <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md">
           <button
+            type="button"
             onClick={() => {
               setSelectedTech(null);
               setPin('');
               setError('');
             }}
-            className="text-blue-600 hover:text-blue-800 text-sm mb-4"
+            className="text-indigo-600 hover:text-indigo-800 text-sm mb-4"
           >
-            ← Back
+            ← Back to roster
           </button>
 
-          <h1 className="text-3xl font-bold text-center mb-2">{selectedTech.name}</h1>
-          <p className="text-center text-gray-600 mb-6">Enter PIN (or leave blank)</p>
+          <h1 className="text-2xl font-bold text-center text-gray-900">{selectedTech.name}</h1>
+          <p className="text-center text-gray-600 text-sm mt-1 mb-6">
+            {needsPin ? 'Enter your PIN to open your work orders.' : 'Continue to your open work orders.'}
+          </p>
 
-          {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">{error}</div>}
+          {error && <div className="bg-red-50 border border-red-200 text-red-800 text-sm px-4 py-3 rounded mb-4">{error}</div>}
 
-          {selectedTech.pin && (
-            <>
-              <div className="bg-gray-100 rounded p-4 mb-6 text-center">
-                <div className="text-4xl font-mono tracking-widest">{pin.replace(/./g, '●') || '−'}</div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 mb-6">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => (
-                  <button
-                    key={digit}
-                    onClick={() => handlePINEntry(digit.toString())}
-                    disabled={pin.length >= 6}
-                    className="text-touch bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300"
-                  >
-                    {digit}
-                  </button>
-                ))}
-
-                <button
-                  onClick={() => handlePINEntry('0')}
-                  disabled={pin.length >= 6}
-                  className="col-span-2 text-touch bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300"
-                >
-                  0
-                </button>
-
-                <button
-                  onClick={handlePinClear}
-                  className="text-touch bg-red-600 text-white rounded hover:bg-red-700"
-                >
-                  ← Delete
-                </button>
-              </div>
-            </>
+          {needsPin && (
+            <input
+              type="password"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 mb-4 text-center text-lg tracking-widest"
+              placeholder="PIN"
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              disabled={busy}
+            />
           )}
 
           <button
-            onClick={handleLogin}
-            disabled={authLoading || (!!selectedTech?.pin && pin.length !== selectedTech.pin.length)}
-            className="w-full text-touch btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            type="button"
+            onClick={() => void confirmTech()}
+            disabled={busy || (needsPin && !pin.trim())}
+            className="w-full py-3 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50"
           >
-            {authLoading ? 'Logging in...' : 'Login'}
+            {busy ? 'Checking…' : 'Continue'}
           </button>
         </div>
       </div>
     );
   }
 
-  // Tech selection screen
   return (
-    <div className="flex-center min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 p-4">
-      <div className="w-full max-w-4xl">
-        <h1 className="text-4xl font-bold text-white text-center mb-2">ShopLogic</h1>
-        <p className="text-blue-100 text-center mb-8">Class 8 Diesel Truck & Trailer Repair</p>
+    <div className="flex min-h-screen flex-col bg-gradient-to-br from-slate-800 to-slate-950 p-4">
+      <header className="max-w-5xl mx-auto w-full flex justify-between items-center py-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Shop floor</h1>
+          <p className="text-slate-300 text-sm">Tap your name, then enter your PIN if you have one.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void logout()}
+          className="px-4 py-2 rounded-lg bg-white/10 text-white border border-white/20 hover:bg-white/20 text-sm font-medium"
+        >
+          Log out terminal
+        </button>
+      </header>
 
+      <main className="max-w-5xl mx-auto w-full flex-1">
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6 text-center">
-            {error}
-          </div>
+          <div className="bg-red-50 border border-red-200 text-red-800 text-sm px-4 py-3 rounded mb-6 text-center">{error}</div>
         )}
 
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {techs.map((tech) => (
             <button
               key={tech.user_id}
-              onClick={() => handleTechSelect(tech)}
-              className="text-touch bg-white text-blue-600 font-semibold rounded-lg hover:bg-blue-50 shadow-lg hover:shadow-xl transition-shadow p-6 text-center"
+              type="button"
+              onClick={() => {
+                setSelectedTech(tech);
+                setPin('');
+                setError('');
+              }}
+              className="rounded-xl bg-white/95 text-slate-900 font-semibold shadow-lg hover:shadow-xl hover:bg-white transition p-6 text-center min-h-[100px] flex flex-col items-center justify-center"
             >
-              <div className="text-2xl">👤</div>
-              <div className="mt-2">{tech.name}</div>
+              <span className="text-2xl" aria-hidden>
+                👤
+              </span>
+              <span className="mt-2">{tech.name}</span>
+              {tech.pin ? <span className="text-xs text-slate-500 mt-1">PIN required</span> : null}
             </button>
           ))}
         </div>
 
         {techs.length === 0 && (
-          <div className="bg-white rounded-lg shadow-lg p-8 text-center">
-            <p className="text-gray-600 text-lg">No active technicians found</p>
-            <p className="text-gray-500 text-sm mt-2">Contact your administrator</p>
+          <div className="bg-white/10 rounded-xl p-8 text-center text-slate-200 mt-8">
+            <p className="text-lg">No active technicians for this shop.</p>
+            <p className="text-sm mt-2 text-slate-400">Ask an owner or manager to add techs.</p>
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }

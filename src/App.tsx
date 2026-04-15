@@ -2,11 +2,14 @@ import { useState } from 'react';
 import { useAuth } from './core/hooks/useAuth';
 import LoginScreen from './modules/auth/LoginScreen';
 import LocationSelector from './modules/auth/LocationSelector';
-import TechDashboard from './modules/tech/TechDashboard';
+import ShopOnboardingWizard from './modules/auth/ShopOnboardingWizard';
+import KioskLoginScreen from './modules/auth/KioskLoginScreen';
+import StaffTeamPanel from './modules/owner/StaffTeamPanel';
+import TechDashboard from './modules/tech-logging/TechDashboard';
 import CustomerList from './modules/customers/CustomerList';
 
 function App() {
-  const { user, currentLocation, availableLocations, loading, selectLocation } = useAuth();
+  const { user, floorTech, currentLocation, availableLocations, loading, selectLocation, needsShopOnboarding } = useAuth();
 
   if (loading) {
     return (
@@ -24,6 +27,10 @@ function App() {
     return <LoginScreen />;
   }
 
+  if (needsShopOnboarding) {
+    return <ShopOnboardingWizard />;
+  }
+
   // If authenticated but no location selected, show location selector
   if (!currentLocation && availableLocations.length > 1) {
     console.log('Showing location selector with', availableLocations.length, 'locations');
@@ -35,9 +42,12 @@ function App() {
     console.log('Showing dashboard for role:', user.role, 'location:', currentLocation.name);
     // Route based on role
     switch (user.role) {
+      case 'kiosk':
+        return floorTech ? <TechDashboard /> : <KioskLoginScreen />;
+
       case 'tech':
-        return <TechDashboard user={user} location={currentLocation} />;
-      
+        return <TechDashboard />;
+
       case 'manager':
         return <ManagerDashboard user={user} location={currentLocation} />;
       
@@ -46,7 +56,7 @@ function App() {
       
       case 'owner':
       case 'admin':
-        return <OwnerDashboard user={user} location={currentLocation} />;
+        return <OwnerDashboard user={user} location={currentLocation!} />;
       
       default:
         return (
@@ -86,7 +96,7 @@ interface DashboardProps {
     email: string;
     role: string;
     labor_rate?: number;
-    shop_id: string;
+    shop_id: string | null;
   };
   location: {
     location_id: string;
@@ -96,7 +106,7 @@ interface DashboardProps {
 }
 
 function ManagerDashboard({ user, location }: DashboardProps) {
-  const { logout } = useAuth();
+  const { logout, currentShop } = useAuth();
   const [activeSection, setActiveSection] = useState<'home' | 'customers' | 'jobs' | 'employees' | 'settings'>('home');
 
   return (
@@ -137,10 +147,14 @@ function ManagerDashboard({ user, location }: DashboardProps) {
                 <h3 className="font-semibold text-gray-900">Jobs</h3>
                 <p className="text-gray-600 text-sm">Manage work orders (coming soon).</p>
               </div>
-              <div className="border rounded-lg p-6 bg-white hover:bg-gray-50">
+              <button
+                type="button"
+                onClick={() => setActiveSection('employees')}
+                className="text-left border rounded-lg p-6 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer"
+              >
                 <h3 className="font-semibold text-gray-900">Employees</h3>
-                <p className="text-gray-600 text-sm">Manage techs and labor rates.</p>
-              </div>
+                <p className="text-gray-600 text-sm">Invite staff and manage roles.</p>
+              </button>
               <div className="border rounded-lg p-6 bg-white hover:bg-gray-50">
                 <h3 className="font-semibold text-gray-900">Settings</h3>
                 <p className="text-gray-600 text-sm">Configure sequences and markups.</p>
@@ -168,7 +182,12 @@ function ManagerDashboard({ user, location }: DashboardProps) {
             </div>
             {activeSection === 'customers' && <CustomerList />}
             {activeSection === 'jobs' && <div className="bg-white p-6 rounded shadow">Job management coming soon...</div>}
-            {activeSection === 'employees' && <div className="bg-white p-6 rounded shadow">Employee management coming soon...</div>}
+            {activeSection === 'employees' &&
+              (currentShop ? (
+                <StaffTeamPanel shop={currentShop} currentUserId={user.user_id} />
+              ) : (
+                <div className="bg-white p-6 rounded shadow text-gray-600 text-sm">Shop context not loaded.</div>
+              ))}
             {activeSection === 'settings' && <div className="bg-white p-6 rounded shadow">Settings coming soon...</div>}
           </div>
         )}
@@ -227,8 +246,9 @@ function SupervisorDashboard({ user }: DashboardProps) {
   );
 }
 
-function OwnerDashboard({ user }: DashboardProps) {
-  const { logout } = useAuth();
+function OwnerDashboard({ user, location }: DashboardProps) {
+  const { logout, currentShop } = useAuth();
+  const [section, setSection] = useState<'home' | 'team'>('home');
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -237,6 +257,9 @@ function OwnerDashboard({ user }: DashboardProps) {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">ShopLogic Owner</h1>
             <p className="text-gray-600 text-sm">Welcome, {user.name}</p>
+            <p className="text-gray-500 text-xs mt-0.5">
+              {currentShop?.name ?? 'Shop'} · {location.name}
+            </p>
           </div>
           <div className="flex items-center gap-4">
             <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm font-medium">Owner/Admin</span>
@@ -250,37 +273,70 @@ function OwnerDashboard({ user }: DashboardProps) {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-        <div className="bg-white rounded shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Owner Dashboard</h2>
-          <p className="text-gray-600 mb-6">Full access to all systems and analytics.</p>
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="border rounded-lg p-6 bg-purple-50">
-              <h3 className="font-semibold text-gray-900">Business Analytics</h3>
-              <p className="text-gray-600 text-sm">Revenue, profitability, and KPIs.</p>
-            </div>
-            <div className="border rounded-lg p-6 bg-purple-50">
-              <h3 className="font-semibold text-gray-900">Team Management</h3>
-              <p className="text-gray-600 text-sm">Manage all users and permissions.</p>
-            </div>
-            <div className="border rounded-lg p-6 bg-purple-50">
-              <h3 className="font-semibold text-gray-900">System Settings</h3>
-              <p className="text-gray-600 text-sm">Configure sequences, markups, and integrations.</p>
-            </div>
-            <div className="border rounded-lg p-6 bg-purple-50">
-              <h3 className="font-semibold text-gray-900">Financial Reports</h3>
-              <p className="text-gray-600 text-sm">Detailed financial and operational data.</p>
-            </div>
-            <div className="border rounded-lg p-6 bg-purple-50">
-              <h3 className="font-semibold text-gray-900">Audit Logs</h3>
-              <p className="text-gray-600 text-sm">Track all system activities and changes.</p>
-            </div>
-            <div className="border rounded-lg p-6 bg-purple-50">
-              <h3 className="font-semibold text-gray-900">Backup & Recovery</h3>
-              <p className="text-gray-600 text-sm">Manage system backups and data recovery.</p>
+      <main className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 space-y-6">
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setSection('home')}
+            className={`px-4 py-2 rounded-md text-sm font-medium ${
+              section === 'home' ? 'bg-purple-600 text-white' : 'bg-white text-gray-700 border'
+            }`}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            onClick={() => setSection('team')}
+            className={`px-4 py-2 rounded-md text-sm font-medium ${
+              section === 'team' ? 'bg-purple-600 text-white' : 'bg-white text-gray-700 border'
+            }`}
+          >
+            Team &amp; roles
+          </button>
+        </div>
+
+        {section === 'home' ? (
+          <div className="bg-white rounded shadow p-6">
+            <h2 className="text-xl font-semibold mb-4">Owner Dashboard</h2>
+            <p className="text-gray-600 mb-6">Full access to all systems and analytics.</p>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="border rounded-lg p-6 bg-purple-50">
+                <h3 className="font-semibold text-gray-900">Business Analytics</h3>
+                <p className="text-gray-600 text-sm">Revenue, profitability, and KPIs.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSection('team')}
+                className="text-left border rounded-lg p-6 bg-purple-50 hover:bg-purple-100 transition-colors"
+              >
+                <h3 className="font-semibold text-gray-900">Team Management</h3>
+                <p className="text-gray-600 text-sm">Roles for staff linked to this shop.</p>
+              </button>
+              <div className="border rounded-lg p-6 bg-purple-50">
+                <h3 className="font-semibold text-gray-900">System Settings</h3>
+                <p className="text-gray-600 text-sm">Configure sequences, markups, and integrations.</p>
+              </div>
+              <div className="border rounded-lg p-6 bg-purple-50">
+                <h3 className="font-semibold text-gray-900">Financial Reports</h3>
+                <p className="text-gray-600 text-sm">Detailed financial and operational data.</p>
+              </div>
+              <div className="border rounded-lg p-6 bg-purple-50">
+                <h3 className="font-semibold text-gray-900">Audit Logs</h3>
+                <p className="text-gray-600 text-sm">Track all system activities and changes.</p>
+              </div>
+              <div className="border rounded-lg p-6 bg-purple-50">
+                <h3 className="font-semibold text-gray-900">Backup & Recovery</h3>
+                <p className="text-gray-600 text-sm">Manage system backups and data recovery.</p>
+              </div>
             </div>
           </div>
-        </div>
+        ) : currentShop ? (
+          <StaffTeamPanel shop={currentShop} currentUserId={user.user_id} />
+        ) : (
+          <div className="bg-white rounded shadow p-6 text-gray-600 text-sm">
+            Shop profile is still loading. Reload the page if this persists.
+          </div>
+        )}
       </main>
     </div>
   );

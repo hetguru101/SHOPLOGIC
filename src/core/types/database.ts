@@ -5,10 +5,26 @@
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
+/** Supabase-generated shape expects this on each table for correct client inference. */
+type EmptyRel = [];
+
 export interface Database {
   public: {
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      kiosk_verify_tech: {
+        Args: { p_tech_id: string; p_pin: string };
+        Returns: Json;
+      };
+      kiosk_clock_in: {
+        Args: { p_tech_id: string; p_job_id: string };
+        Returns: Json;
+      };
+      kiosk_clock_out: {
+        Args: { p_log_id: string; p_elapsed_minutes: number };
+        Returns: Json;
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
     Tables: {
@@ -16,7 +32,7 @@ export interface Database {
         Row: {
           user_id: string;
           name: string;
-          role: 'tech' | 'manager' | 'supervisor' | 'owner' | 'admin';
+          role: 'tech' | 'manager' | 'supervisor' | 'owner' | 'admin' | 'kiosk';
           pin: string | null;
           email: string | null;
           shop_id: string | null;
@@ -29,6 +45,7 @@ export interface Database {
         };
         Insert: Omit<Database['public']['Tables']['users']['Row'], 'created_at' | 'updated_at' | 'user_id'>;
         Update: Partial<Database['public']['Tables']['users']['Insert']>;
+        Relationships: EmptyRel;
       };
       shops: {
         Row: {
@@ -47,6 +64,7 @@ export interface Database {
         };
         Insert: Omit<Database['public']['Tables']['shops']['Row'], 'created_at' | 'updated_at' | 'shop_id'>;
         Update: Partial<Database['public']['Tables']['shops']['Insert']>;
+        Relationships: EmptyRel;
       };
       locations: {
         Row: {
@@ -66,6 +84,7 @@ export interface Database {
         };
         Insert: Omit<Database['public']['Tables']['locations']['Row'], 'created_at' | 'updated_at' | 'location_id'>;
         Update: Partial<Database['public']['Tables']['locations']['Insert']>;
+        Relationships: EmptyRel;
       };
       user_locations: {
         Row: {
@@ -79,10 +98,13 @@ export interface Database {
         };
         Insert: Omit<Database['public']['Tables']['user_locations']['Row'], 'created_at' | 'updated_at' | 'user_location_id'>;
         Update: Partial<Database['public']['Tables']['user_locations']['Insert']>;
+        Relationships: EmptyRel;
       };
       customers: {
         Row: {
           customer_id: string;
+          shop_id: string | null;
+          location_id: string | null;
           name: string;
           contact_person: string | null;
           email: string | null;
@@ -94,10 +116,13 @@ export interface Database {
         };
         Insert: Omit<Database['public']['Tables']['customers']['Row'], 'created_at' | 'updated_at' | 'customer_id'>;
         Update: Partial<Database['public']['Tables']['customers']['Insert']>;
+        Relationships: EmptyRel;
       };
       vehicles: {
         Row: {
           vehicle_id: string;
+          shop_id: string | null;
+          location_id: string | null;
           customer_id: string;
           vin: string;
           make: string | null;
@@ -113,13 +138,16 @@ export interface Database {
         };
         Insert: Omit<Database['public']['Tables']['vehicles']['Row'], 'created_at' | 'updated_at' | 'vehicle_id'>;
         Update: Partial<Database['public']['Tables']['vehicles']['Insert']>;
+        Relationships: EmptyRel;
       };
       jobs: {
         Row: {
           job_id: string;
+          shop_id: string | null;
+          location_id: string | null;
           job_number: string;
           vehicle_id: string;
-          assigned_tech_id: string | null;
+          tech_id: string;
           description: string | null;
           status: 'open' | 'in-progress' | 'completed' | 'declined';
           is_declined: boolean;
@@ -130,10 +158,13 @@ export interface Database {
         };
         Insert: Omit<Database['public']['Tables']['jobs']['Row'], 'created_at' | 'updated_at' | 'job_id'>;
         Update: Partial<Database['public']['Tables']['jobs']['Insert']>;
+        Relationships: EmptyRel;
       };
       job_logs: {
         Row: {
           log_id: string;
+          shop_id: string | null;
+          location_id: string | null;
           job_id: string;
           tech_id: string;
           clock_in: string;
@@ -147,20 +178,24 @@ export interface Database {
         };
         Insert: Omit<Database['public']['Tables']['job_logs']['Row'], 'created_at' | 'updated_at' | 'log_id'>;
         Update: Partial<Database['public']['Tables']['job_logs']['Insert']>;
+        Relationships: EmptyRel;
       };
       settings: {
         Row: {
-          setting_key: string;
-          setting_value: string;
+          setting_id: string;
+          shop_id: string | null;
+          config: Json;
           created_at: string;
           updated_at: string;
         };
-        Insert: Omit<Database['public']['Tables']['settings']['Row'], 'created_at' | 'updated_at'>;
+        Insert: Omit<Database['public']['Tables']['settings']['Row'], 'created_at' | 'updated_at' | 'setting_id'>;
         Update: Partial<Database['public']['Tables']['settings']['Insert']>;
+        Relationships: EmptyRel;
       };
       markup_matrix: {
         Row: {
           matrix_id: string;
+          shop_id: string | null;
           type: 'parts' | 'sublet';
           category: string | null;
           markup_percent: number;
@@ -170,6 +205,7 @@ export interface Database {
         };
         Insert: Omit<Database['public']['Tables']['markup_matrix']['Row'], 'created_at' | 'updated_at' | 'matrix_id'>;
         Update: Partial<Database['public']['Tables']['markup_matrix']['Insert']>;
+        Relationships: EmptyRel;
       };
     };
   };

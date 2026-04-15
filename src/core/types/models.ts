@@ -46,12 +46,12 @@ export interface User {
   user_id: string;
   name: string;
   email: string;
-  role: 'tech' | 'manager' | 'supervisor' | 'owner' | 'admin';
+  role: 'tech' | 'manager' | 'supervisor' | 'owner' | 'admin' | 'kiosk';
   /** Kiosk / floor PIN when set in database */
   pin?: string | null;
   labor_rate: number;
-  shop_id: string;
-  default_location_id?: string;
+  shop_id: string | null;
+  default_location_id?: string | null;
   last_day_worked?: string;
   active: boolean;
   created_at: string;

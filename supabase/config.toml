@@ -1,0 +1,5 @@
+# Minimal Supabase CLI config. Run `supabase link` to set project_id for deploys.
+# https://supabase.com/docs/guides/cli/config
+
+[functions.invite-staff]
+verify_jwt = true

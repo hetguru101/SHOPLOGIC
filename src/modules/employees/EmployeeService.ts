@@ -72,10 +72,7 @@ export const EmployeeService = {
     if (input.pin !== undefined) updateData.pin = input.pin || null;
     if (input.active !== undefined) updateData.active = input.active;
 
-    const { data, error } = await supabase
-      .from('users')
-      // @ts-expect-error Supabase type mismatch for partial updates
-      .update(updateData)
+    const { data, error } = await supabase.from('users').update(updateData as never)
       .eq('user_id', techId)
       .select()
       .single();

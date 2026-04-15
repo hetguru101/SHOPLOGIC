@@ -94,10 +94,7 @@ export const CustomerService = {
     if (input.zip !== undefined) updateData.zip = input.zip || null;
     if (input.laborRateOverride !== undefined) updateData.labor_rate_override = input.laborRateOverride || null;
 
-    const { data, error } = await supabase
-      .from('customers')
-      // @ts-expect-error Supabase type mismatch for partial updates
-      .update(updateData)
+    const { data, error } = await supabase.from('customers').update(updateData as never)
       .eq('customer_id', customerId)
       .select()
       .single();

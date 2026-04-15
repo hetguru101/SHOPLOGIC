@@ -1,140 +1,83 @@
 import { supabase } from '@/core/supabase/client';
+import type { Json } from '@/core/types/database';
+import type { Settings } from '@/core/types/models';
+import { mergeConfig } from '@/modules/settings/mergeConfig';
 
 /**
- * Settings Service
- * Handles all admin settings operations:
- * - Sequence formatting (work order, tech ID, PO)
- * - Labor rates (default shop rate, customer overrides)
- * - Markup matrix (parts, sublet percentages)
+ * Shop settings — stored as one row per shop (`settings.config` JSONB, see 001 + 002 migrations).
  */
-
 export const SettingsService = {
-  /**
-   * Get a setting by key
-   */
-  async getSetting(key: string): Promise<any> {
-    const { data, error } = await supabase
+  async fetchConfigForShop(shopId: string): Promise<Settings['config'] | null> {
+    const { data: row, error } = await supabase
       .from('settings')
-      .select('setting_value')
-      .eq('setting_key', key)
-      .single();
+      .select('config')
+      .eq('shop_id', shopId)
+      .maybeSingle();
 
     if (error && error.code !== 'PGRST116') throw error;
-    if (!data) return null;
+    if (row?.config) return row.config as Settings['config'];
 
-    try {
-      return JSON.parse((data as any).setting_value);
-    } catch {
-      return (data as any).setting_value; // Return as string if not JSON
+    const { data: globalRow } = await supabase.from('settings').select('config').is('shop_id', null).limit(1).maybeSingle();
+
+    return (globalRow?.config as Settings['config']) ?? null;
+  },
+
+  async updateConfigPatch(shopId: string, patch: Partial<Settings['config']>): Promise<Settings['config']> {
+    const current = (await this.fetchConfigForShop(shopId)) ?? {};
+    const next = mergeConfig(current as Record<string, unknown>, patch as Record<string, unknown>) as Settings['config'];
+
+    const { data: existing, error: findErr } = await supabase
+      .from('settings')
+      .select('setting_id')
+      .eq('shop_id', shopId)
+      .maybeSingle();
+    if (findErr && findErr.code !== 'PGRST116') throw findErr;
+
+    if (existing?.setting_id) {
+      const { error } = await supabase.from('settings').update({ config: next as unknown as Json }).eq('setting_id', existing.setting_id);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from('settings').insert({ shop_id: shopId, config: next as unknown as Json });
+      if (error) throw error;
     }
+
+    return next;
   },
 
-  /**
-   * Get multiple settings
-   */
-  async getSettings(keys: string[]): Promise<Record<string, any>> {
-    const { data, error } = await supabase
-      .from('settings')
-      .select('setting_key, setting_value')
-      .in('setting_key', keys);
-
-    if (error) throw error;
-
-    const result: Record<string, any> = {};
-    (data || []).forEach((row: any) => {
-      try {
-        result[row.setting_key] = JSON.parse(row.setting_value);
-      } catch {
-        result[row.setting_key] = row.setting_value;
-      }
-    });
-
-    return result;
+  async getWorkOrderSequenceFormat(shopId: string): Promise<string> {
+    const c = await this.fetchConfigForShop(shopId);
+    return c?.work_order_sequence?.format ?? 'WO-{YYYY}-{SEQUENCE}';
   },
 
-  /**
-   * Update a setting
-   */
-  async updateSetting(key: string, value: any): Promise<void> {
-    const stringValue = typeof value === 'string' ? value : JSON.stringify(value);
-
-    const { error } = await supabase
-      .from('settings')
-      .upsert([{
-        setting_key: key,
-        setting_value: stringValue,
-      }] as any);
-
-    if (error) throw error;
+  async getTechIdSequenceFormat(shopId: string): Promise<string> {
+    const c = await this.fetchConfigForShop(shopId);
+    return c?.tech_id_sequence?.format ?? 'TECH-{YYYY}-{SEQUENCE}';
   },
 
-  /**
-   * Get work order sequence format
-   * Default: "WO-{YYYY}-{SEQUENCE}"
-   */
-  async getWorkOrderSequenceFormat(): Promise<string> {
-    const format = await this.getSetting('work_order_sequence_format');
-    return format || 'WO-{YYYY}-{SEQUENCE}';
+  async getPoNumberSequenceFormat(shopId: string): Promise<string> {
+    const c = await this.fetchConfigForShop(shopId);
+    return c?.po_sequence?.format ?? 'PO-{SEQUENCE}';
   },
 
-  /**
-   * Get tech ID sequence format
-   * Default: "TECH-{YYYY}-{SEQUENCE}"
-   */
-  async getTechIdSequenceFormat(): Promise<string> {
-    const format = await this.getSetting('tech_id_sequence_format');
-    return format || 'TECH-{YYYY}-{SEQUENCE}';
+  async getDefaultLaborRate(shopId: string): Promise<number> {
+    const c = await this.fetchConfigForShop(shopId);
+    const v = c?.default_labor_rate;
+    return typeof v === 'number' ? v : 55;
   },
 
-  /**
-   * Get PO number sequence format
-   * Default: "PO-{SEQUENCE}"
-   */
-  async getPoNumberSequenceFormat(): Promise<string> {
-    const format = await this.getSetting('po_number_sequence_format');
-    return format || 'PO-{SEQUENCE}';
-  },
-
-  /**
-   * Get default shop labor rate
-   */
-  async getDefaultLaborRate(): Promise<number> {
-    const rate = await this.getSetting('default_labor_rate');
-    return parseFloat(rate) || 55.0;
-  },
-
-  /**
-   * Get parts markup percentage (0-100)
-   */
-  async getPartsMarkup(): Promise<number> {
-    const markup = await this.getSetting('parts_markup_percent');
-    return parseFloat(markup) || 20.0;
-  },
-
-  /**
-   * Get sublet markup percentage (0-100)
-   */
-  async getSubletMarkup(): Promise<number> {
-    const markup = await this.getSetting('sublet_markup_percent');
-    return parseFloat(markup) || 15.0;
-  },
-
-  /**
-   * Format a sequence number using stored template
-   * Supports placeholders: {YYYY}, {MM}, {DD}, {SEQUENCE}
-   */
   async formatSequenceNumber(
+    shopId: string,
     type: 'work_order' | 'tech_id' | 'po',
     sequenceNumber: number
   ): Promise<string> {
+    const c = await this.fetchConfigForShop(shopId);
     let format: string;
-
     if (type === 'work_order') {
-      format = await this.getWorkOrderSequenceFormat();
+      format = c?.work_order_sequence?.format ?? 'WO-{YYYY}-{SEQUENCE}';
     } else if (type === 'tech_id') {
-      format = await this.getTechIdSequenceFormat();
+      format = c?.tech_id_sequence?.format ?? 'T-{SEQUENCE}';
     } else {
-      format = await this.getPoNumberSequenceFormat();
+      format = c?.po_sequence?.format ?? 'PO-{YYYY}-{SEQUENCE}';
     }
 
     const now = new Date();

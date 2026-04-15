@@ -40,24 +40,26 @@ export function formatTime(date: string | Date): string {
 }
 
 export function formatMinutes(minutes: number): string {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  if (hours > 0) {
-    return `${hours}h ${mins}m`;
-  }
-  return `${mins}m`;
+  const safeMinutes = Number.isFinite(minutes) ? Math.max(0, Math.floor(minutes)) : 0;
+  const hours = Math.floor(safeMinutes / 60);
+  const mins = safeMinutes % 60;
+  return `${hours}:${String(mins).padStart(2, '0')}`;
 }
 
 export function formatPhone(phone: string): string {
   const cleaned = phone.replace(/\D/g, '');
+  if (cleaned.length === 0) return '';
   if (cleaned.length === 10) {
     return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
   }
-  return phone;
+  return cleaned;
 }
 
 export function formatVIN(vin: string): string {
-  return vin.toUpperCase().trim();
+  return vin
+    .toUpperCase()
+    .trim()
+    .replace(/[^A-Z0-9]/g, '');
 }
 
 export function truncate(str: string, length: number): string {
