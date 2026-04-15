@@ -47,7 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setCurrentShop(shopData as Shop);
 
-    const { data: locationData, error: locError } = await supabase
+    const { data: rawUserLocs, error: locError } = await supabase
       .from('user_locations')
       .select('location_id')
       .eq('user_id', userData.user_id)
@@ -57,9 +57,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('user_locations query error:', locError);
     }
 
-    if (locationData && locationData.length > 0) {
-      const locationIds = locationData.map((ul) => ul.location_id);
-      const { data: locationsData, error: fetchLocError } = await supabase
+    const userLocRows = (rawUserLocs ?? []) as { location_id: string }[];
+
+    if (userLocRows.length > 0) {
+      const locationIds = userLocRows.map((ul) => ul.location_id);
+      const { data: rawLocations, error: fetchLocError } = await supabase
         .from('locations')
         .select('*')
         .in('location_id', locationIds)
@@ -69,24 +71,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error('Locations fetch error:', fetchLocError);
       }
 
-      if (locationsData && locationsData.length > 0) {
-        setAvailableLocations(locationsData as Location[]);
+      const locationsData = (rawLocations ?? []) as Location[];
+
+      if (locationsData.length > 0) {
+        setAvailableLocations(locationsData);
 
         if (storedLocationId) {
           const selectedLoc = locationsData.find((l) => l.location_id === storedLocationId);
           if (selectedLoc) {
-            setCurrentLocation(selectedLoc as Location);
+            setCurrentLocation(selectedLoc);
             return;
           }
         }
 
         if (locationsData.length === 1) {
-          setCurrentLocation(locationsData[0] as Location);
+          setCurrentLocation(locationsData[0]);
           localStorage.setItem('shoplogic_location_id', locationsData[0].location_id);
         } else if (userData.default_location_id) {
           const defaultLoc = locationsData.find((l) => l.location_id === userData.default_location_id);
           if (defaultLoc) {
-            setCurrentLocation(defaultLoc as Location);
+            setCurrentLocation(defaultLoc);
             localStorage.setItem('shoplogic_location_id', defaultLoc.location_id);
           }
         }
@@ -94,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    const { data: shopLocations, error: shopLocError } = await supabase
+    const { data: rawShopLocs, error: shopLocError } = await supabase
       .from('locations')
       .select('*')
       .eq('shop_id', userData.shop_id)
@@ -104,19 +108,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('Shop locations query error:', shopLocError);
     }
 
-    if (shopLocations && shopLocations.length > 0) {
-      setAvailableLocations(shopLocations as Location[]);
+    const shopLocations = (rawShopLocs ?? []) as Location[];
+
+    if (shopLocations.length > 0) {
+      setAvailableLocations(shopLocations);
 
       if (storedLocationId) {
         const selectedLoc = shopLocations.find((l) => l.location_id === storedLocationId);
         if (selectedLoc) {
-          setCurrentLocation(selectedLoc as Location);
+          setCurrentLocation(selectedLoc);
           return;
         }
       }
 
       if (shopLocations.length === 1) {
-        setCurrentLocation(shopLocations[0] as Location);
+        setCurrentLocation(shopLocations[0]);
         localStorage.setItem('shoplogic_location_id', shopLocations[0].location_id);
       }
     }
