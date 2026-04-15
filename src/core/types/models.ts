@@ -47,6 +47,8 @@ export interface User {
   name: string;
   email: string;
   role: 'tech' | 'manager' | 'supervisor' | 'owner' | 'admin';
+  /** Kiosk / floor PIN when set in database */
+  pin?: string | null;
   labor_rate: number;
   shop_id: string;
   default_location_id?: string;

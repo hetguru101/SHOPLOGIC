@@ -106,6 +106,7 @@ function ManagerDashboard({ user, location }: DashboardProps) {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">ShopLogic Manager</h1>
             <p className="text-gray-600 text-sm">Welcome, {user.name}</p>
+            <p className="text-gray-500 text-xs mt-0.5">Location: {location.name}</p>
           </div>
           <div className="flex items-center gap-4">
             <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">Manager</span>

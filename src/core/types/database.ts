@@ -7,13 +7,20 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 
 export interface Database {
   public: {
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
+    Enums: Record<string, never>;
+    CompositeTypes: Record<string, never>;
     Tables: {
       users: {
         Row: {
           user_id: string;
           name: string;
-          role: 'tech' | 'manager' | 'admin';
+          role: 'tech' | 'manager' | 'supervisor' | 'owner' | 'admin';
           pin: string | null;
+          email: string | null;
+          shop_id: string | null;
+          default_location_id: string | null;
           labor_rate: number;
           last_day_worked: string | null;
           active: boolean;
@@ -22,6 +29,56 @@ export interface Database {
         };
         Insert: Omit<Database['public']['Tables']['users']['Row'], 'created_at' | 'updated_at' | 'user_id'>;
         Update: Partial<Database['public']['Tables']['users']['Insert']>;
+      };
+      shops: {
+        Row: {
+          shop_id: string;
+          name: string;
+          owner_id: string;
+          email: string;
+          phone: string | null;
+          address: string | null;
+          city: string | null;
+          state: string | null;
+          zip: string | null;
+          active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database['public']['Tables']['shops']['Row'], 'created_at' | 'updated_at' | 'shop_id'>;
+        Update: Partial<Database['public']['Tables']['shops']['Insert']>;
+      };
+      locations: {
+        Row: {
+          location_id: string;
+          shop_id: string;
+          name: string;
+          address: string | null;
+          city: string | null;
+          state: string | null;
+          zip: string | null;
+          phone: string | null;
+          manager_id: string | null;
+          is_default: boolean;
+          active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database['public']['Tables']['locations']['Row'], 'created_at' | 'updated_at' | 'location_id'>;
+        Update: Partial<Database['public']['Tables']['locations']['Insert']>;
+      };
+      user_locations: {
+        Row: {
+          user_location_id: string;
+          user_id: string;
+          location_id: string;
+          can_assign_jobs: boolean | null;
+          active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database['public']['Tables']['user_locations']['Row'], 'created_at' | 'updated_at' | 'user_location_id'>;
+        Update: Partial<Database['public']['Tables']['user_locations']['Insert']>;
       };
       customers: {
         Row: {
@@ -117,3 +174,6 @@ export interface Database {
     };
   };
 }
+
+export type Tables<T extends keyof Database['public']['Tables']> =
+  Database['public']['Tables'][T]['Row'];

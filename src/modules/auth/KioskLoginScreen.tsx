@@ -4,7 +4,7 @@ import { supabase } from '@/core/supabase/client';
 import { User } from '@/core/types/models';
 
 export default function KioskLoginScreen() {
-  const { login, loading: authLoading } = useAuth();
+  const { loginWithTechId, loading: authLoading } = useAuth();
   const [techs, setTechs] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTech, setSelectedTech] = useState<User | null>(null);
@@ -80,7 +80,7 @@ export default function KioskLoginScreen() {
     }
 
     try {
-      await login(selectedTech.user_id);
+      await loginWithTechId(selectedTech.user_id);
     } catch (err) {
       setError((err as Error).message || 'Login failed');
     }
